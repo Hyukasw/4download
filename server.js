@@ -39,6 +39,103 @@ app.get('/api/yt', async (req, res) => {
   req.on('close', () => { proc.kill(); });
 });
 
+// ─── YouTube info (show metadata before download) ───
+function fmtSize(bytes) {
+  if (!bytes) return null;
+  const b = parseInt(bytes);
+  if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+  if (b < 1024 * 1024 * 1024) return (b / 1024 / 1024).toFixed(1) + ' MB';
+  return (b / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+}
+function fmtDuration(sec) {
+  if (!sec && sec !== 0) return null;
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  if (m >= 60) {
+    const h = Math.floor(m / 60);
+    return h + ':' + String(m % 60).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
+  return m + ':' + String(s).padStart(2, '0');
+}
+
+app.get('/api/info', async (req, res) => {
+  const url = req.query.url;
+  if (!url) return res.status(400).json({ error: 'missing url' });
+  res.setHeader('Access-Control-Allow-Origin', '*');
+
+  try {
+    const low = url.toLowerCase();
+
+    // YouTube — use yt-dlp --dump-json for full metadata (fast, no download)
+    if (low.includes('youtube.com') || low.includes('youtu.be')) {
+      const m = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+      if (!m) return res.status(400).json({ error: 'bad youtube id' });
+
+      const ytpath = 'C:\\Users\\User\\AppData\\Local\\Programs\\Python\\Python313\\Scripts\\yt-dlp.exe';
+      const out = execSync(`"${ytpath}" -j "${'https://www.youtube.com/watch?v=' + m[1]}"`, {
+        timeout: 30000, windowsHide: true, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024,
+      });
+      const data = JSON.parse(out.trim().split('\n')[0]);
+
+      const formats = (data.formats || [])
+        .filter(f => f.vcodec !== 'none')
+        .map(f => ({
+          label: f.format_note || f.height + 'p' || 'unknown',
+          size: f.filesize || f.filesize_approx || 0,
+          format: f.extension || 'mp4',
+          hasAudio: f.acodec !== 'none',
+          bitrate: f.tbr || f.vbr || 0,
+        }))
+        .sort((a, b) => {
+          if (a.hasAudio !== b.hasAudio) return b.hasAudio - a.hasAudio;
+          return (b.bitrate || 0) - (a.bitrate || 0);
+        });
+
+      const best = formats[0] || null;
+      const allLabels = [...new Set(formats.map(f => f.label).filter(Boolean))];
+      const maxQ = [...allLabels].sort((a, b) => {
+        const na = parseInt(a), nb = parseInt(b);
+        return (nb || 0) - (na || 0);
+      })[0] || null;
+      return res.json({
+        title: data.title || 'YouTube Video',
+        duration: data.duration || 0,
+        durationFormatted: fmtDuration(data.duration),
+        thumbnail: data.thumbnail || null,
+        platform: 'youtube',
+        qualities: allLabels,
+        maxQuality: maxQ,
+        best: best ? {
+          quality: best.label, size: best.size,
+          sizeFormatted: fmtSize(best.size), format: best.format,
+          hasAudio: best.hasAudio,
+        } : null,
+      });
+    }
+
+    // Non-YouTube: scrape og tags
+    const r = await fetch(url, {
+      headers: { 'User-Agent': UA, 'Accept': 'text/html' },
+      signal: AbortSignal.timeout(15000),
+    });
+    const html = await r.text();
+    let platform = 'unknown';
+    if (low.includes('tiktok')) platform = 'tiktok';
+    else if (low.includes('instagram')) platform = 'instagram';
+    else if (low.includes('facebook') || low.includes('fb.')) platform = 'facebook';
+    else if (low.includes('twitter') || low.includes('x.com')) platform = 'twitter';
+
+    return res.json({
+      title: og(html, 'og:title') || og(html, 'twitter:title') || '',
+      duration: null, durationFormatted: null,
+      thumbnail: og(html, 'og:image') || og(html, 'twitter:image'),
+      platform, qualities: [], best: null,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ─── Generic download ───
 function og(html, prop) {
   const p = prop.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -163,3 +260,4 @@ app.get('*', (req, res) => {
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log('4DownVid running on http://localhost:' + PORT));
+

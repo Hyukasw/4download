@@ -1,30 +1,36 @@
-import { spawn } from 'child_process';
+import ytdl from '@distube/ytdl-core';
+import { Readable } from 'stream';
 
 export default async function handler(req, res) {
   const vid = req.query.v;
   if (!vid || !/^[a-zA-Z0-9_-]{11}$/.test(vid)) return res.status(400).json({ error: 'bad id' });
 
-  res.setHeader('Content-Type', 'video/mp4');
-  res.setHeader('Content-Disposition', 'attachment; filename="' + vid + '.mp4"');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  try {
+    const info = await ytdl.getInfo('https://www.youtube.com/watch?v=' + vid, {
+      requestOptions: { timeout: 15000 },
+    });
 
-  const proc = spawn('yt-dlp', [
-    '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-    '-o', '-',
-    'https://www.youtube.com/watch?v=' + vid,
-  ], { stdio: ['ignore', 'pipe', 'pipe'], timeout: 180000 });
+    const fmt = info.formats
+      .filter(f => f.hasVideo && f.hasAudio && f.url)
+      .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0]
+      || info.formats
+      .filter(f => f.hasVideo && f.url)
+      .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0];
 
-  let started = false;
-  proc.stdout.on('data', () => { if (!started) started = true; });
-  proc.stdout.pipe(res);
+    if (!fmt?.url) return res.status(502).json({ error: 'no downloadable format found' });
 
-  proc.on('error', () => { if (!res.headersSent) res.status(502).json({ error: 'process error' }); });
-  proc.on('close', code => {
-    if (code !== 0 && !started && !res.headersSent) {
-      res.status(502).json({ error: 'yt-dlp failed with code ' + code });
-    }
-  });
+    const r = await fetch(fmt.url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+      signal: AbortSignal.timeout(120000),
+    });
+    if (!r.ok) return res.status(502).json({ error: 'upstream fetch failed' });
 
-  req.on('close', () => { proc.kill(); });
+    res.setHeader('Content-Type', fmt.mimeType || 'video/mp4');
+    res.setHeader('Content-Disposition', 'attachment; filename="' + vid + '.mp4"');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    Readable.fromWeb(r.body).pipe(res);
+  } catch (e) {
+    if (!res.headersSent) res.status(502).json({ error: e.message });
+  }
 }
