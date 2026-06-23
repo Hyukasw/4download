@@ -106,6 +106,8 @@ function handleDownload() {
   }
 
   const platform = select.value !== 'auto' ? select.value : detectPlatform(url);
+  lastDownloadUrl = url;
+  lastPlatform = platform;
   const result = document.getElementById('result');
   const previewWrap = document.getElementById('resultPreview');
 
@@ -156,10 +158,109 @@ function handleDownload() {
   }
 
   previewWrap.innerHTML = previewHtml;
-  document.getElementById('dlBtn').href = url;
   result.classList.add('show');
 
   setTimeout(function() { result.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, 200);
+}
+
+// ── Store last detected URL/platform for download ──
+let lastDownloadUrl = '';
+let lastPlatform = '';
+
+function downloadFile() {
+  const url = lastDownloadUrl || document.getElementById('urlInput').value.trim();
+  if (!url) return;
+
+  const btn = document.getElementById('dlBtn');
+  btn.textContent = 'جاري التحميل...';
+  btn.disabled = true;
+
+  const plat = lastPlatform || detectPlatform(url);
+
+  if (plat === 'youtube') {
+    downloadYouTube(url, btn);
+  } else {
+    fetchViaProxy(url, btn);
+  }
+}
+
+async function downloadYouTube(url, btn) {
+  const m = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+  if (!m) { btn.textContent = 'Download HD'; btn.disabled = false; return; }
+  const vid = m[1];
+
+  const instances = [
+    'https://inv.nadeko.net/api/v1/videos/' + vid,
+    'https://invidious.snopyta.org/api/v1/videos/' + vid,
+    'https://yewtu.be/api/v1/videos/' + vid,
+    'https://vid.puffyan.us/api/v1/videos/' + vid,
+  ];
+
+  for (const apiUrl of instances) {
+    try {
+      const resp = await fetch(apiUrl, { signal: AbortSignal.timeout(8000) });
+      if (!resp.ok) continue;
+      const data = await resp.json();
+
+      let videoUrl = null;
+      const allFormats = (data.adaptiveFormats || []).concat(data.formatStreams || []);
+      for (const f of allFormats) {
+        if (f.url && f.type && f.type.startsWith('video/mp4')) {
+          const label = f.qualityLabel || '';
+          if (label.includes('720p') || label.includes('1080p') || label.includes('480p')) {
+            if (!videoUrl) videoUrl = f;
+          }
+          if (!videoUrl) videoUrl = f;
+        }
+      }
+      if (!videoUrl) {
+        for (const f of allFormats) {
+          if (f.url) { videoUrl = f; break; }
+        }
+      }
+      if (videoUrl && videoUrl.url) {
+        await fetchViaProxy(videoUrl.url, btn);
+        return;
+      }
+    } catch(e) { continue; }
+  }
+
+  // Fallback: use direct API download endpoint
+  window.open('https://api.vevioz.com/api/button/Youtube/' + vid, '_blank');
+  btn.textContent = 'Download HD';
+  btn.disabled = false;
+}
+
+async function fetchViaProxy(url, btn) {
+  const proxies = [
+    'https://api.allorigins.win/raw?url=' + encodeURIComponent(url),
+    'https://corsproxy.io/?' + encodeURIComponent(url),
+    'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url),
+  ];
+  for (const proxyUrl of proxies) {
+    try {
+      const resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(15000) });
+      if (!resp.ok) continue;
+      const blob = await resp.blob();
+      const ext = (blob.type.split('/')[1] || 'mp4').replace('x-', '');
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = 'video.' + ext;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function() { URL.revokeObjectURL(blobUrl); }, 5000);
+      btn.textContent = 'Download HD';
+      btn.disabled = false;
+      return;
+    } catch(e) { continue; }
+  }
+
+  // Last resort
+  window.open(url, '_blank');
+  btn.textContent = 'Download HD';
+  btn.disabled = false;
 }
 
 function clearResult() {
