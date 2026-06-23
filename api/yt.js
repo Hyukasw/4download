@@ -7,7 +7,7 @@ export default async function handler(req, res) {
 
   try {
     const info = await ytdl.getInfo('https://www.youtube.com/watch?v=' + vid, {
-      requestOptions: { timeout: 15000 },
+      requestOptions: { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 15000 },
     });
 
     const fmt = info.formats
@@ -17,7 +17,7 @@ export default async function handler(req, res) {
       .filter(f => f.hasVideo && f.url)
       .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0];
 
-    if (!fmt?.url) return res.status(502).json({ error: 'no downloadable format found' });
+    if (!fmt?.url) return res.status(502).json({ error: 'no downloadable format' });
 
     const r = await fetch(fmt.url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
