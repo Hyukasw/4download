@@ -14,25 +14,29 @@ app.get('/api/yt', async (req, res) => {
   const vid = req.query.v;
   if (!vid || !/^[a-zA-Z0-9_-]{11}$/.test(vid)) return res.status(400).json({ error: 'bad id' });
 
-  try {
-    const url = execSync(
-      '"C:\\Users\\User\\AppData\\Local\\Programs\\Python\\Python313\\Scripts\\yt-dlp.exe" -g --format "best[height<=1080][ext=mp4]/best[ext=mp4]" "https://www.youtube.com/watch?v=' + vid + '" 2>NUL',
-      { timeout: 30000, encoding: 'utf8', maxBuffer: 1048576, shell: 'cmd.exe' }
-    ).trim();
-    if (!url) return res.status(502).json({ error: 'no url' });
+  res.setHeader('Content-Type', 'video/mp4');
+  res.setHeader('Content-Disposition', 'attachment; filename="' + vid + '.mp4"');
+  res.setHeader('Cache-Control', 'no-cache');
 
-    const r = await fetch(url, {
-      headers: { 'User-Agent': UA, 'Accept': '*/*' },
-      signal: AbortSignal.timeout(180000),
-    });
-    if (!r.ok) return res.status(502).json({ error: 'fetch failed' });
-    res.setHeader('Content-Type', r.headers.get('content-type') || 'video/mp4');
-    res.setHeader('Content-Disposition', 'attachment; filename="' + vid + '.mp4"');
-    res.setHeader('Cache-Control', 'no-cache');
-    Readable.fromWeb(r.body).pipe(res);
-  } catch (e) {
-    res.status(502).json({ error: e.message });
-  }
+  const proc = spawn('C:\\Users\\User\\AppData\\Local\\Programs\\Python\\Python313\\Scripts\\yt-dlp.exe', [
+    '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+    '-o', '-',
+    'https://www.youtube.com/watch?v=' + vid,
+  ], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, timeout: 180000 });
+
+  let started = false;
+  proc.stdout.on('data', () => { if (!started) { started = true; } });
+  proc.stdout.pipe(res);
+
+  proc.on('error', () => { if (!res.headersSent) res.status(502).json({ error: 'process error' }); });
+  proc.on('close', code => {
+    if (code !== 0 && !started && !res.headersSent) {
+      res.status(502).json({ error: 'yt-dlp failed with code ' + code });
+    }
+  });
+
+  // Kill if client disconnects
+  req.on('close', () => { proc.kill(); });
 });
 
 // ─── Generic download ───
