@@ -156,6 +156,13 @@ nav { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-inde
 
 .bg-vid { position: absolute; inset: 0; z-index: 0; }
 
+/* ── Spinner ── */
+.spinner-wrap { display:flex; align-items:center; justify-content:center; height:100%; padding:20px; }
+.spinner { width:32px; height:32px; border:2px solid var(--accent-dim); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; }
+
+/* ── Meta badges ── */
+.meta-badge { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:100px; background:var(--accent-dim); color:var(--accent); font-size:10px; font-weight:600; }
+
 /* ── Animations ── */
 .fade-up { opacity: 0; transform: translateY(24px); transition: all .7s cubic-bezier(.32,.72,0,1); }
 .fade-up.visible { opacity: 1; transform: translateY(0); }
