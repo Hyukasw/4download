@@ -59,7 +59,7 @@ function detectPlatform(url) {
 function apiDL(path) {
   const a = document.createElement('a');
   a.href = path;
-  a.download = '';
+  a.download = 'video.mp4';
   a.style.display = 'none';
   document.body.appendChild(a);
   a.click();
