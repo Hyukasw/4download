@@ -51,6 +51,7 @@ body { font-family: var(--font-body); background: var(--bg); color: var(--text);
 .preloader-bar { width: 180px; height: 2px; background: var(--border); border-radius: 2px; margin: 16px auto 0; overflow: hidden; }
 .preloader-bar span { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 2px; animation: preload-fill 1.4s cubic-bezier(.32,.72,0,1) forwards; }
 @keyframes preload-fill { to { width: 100%; } }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* ── Nav ── */
 nav { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 1000; width: calc(100% - 32px); max-width: 1100px; display: flex; justify-content: space-between; align-items: center; padding: 10px 20px 10px 24px; border-radius: 100px; background: rgba(10,10,10,.7); backdrop-filter: blur(32px); -webkit-backdrop-filter: blur(32px); border: 1px solid var(--border); transition: all .5s cubic-bezier(.32,.72,0,1); }

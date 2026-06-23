@@ -93,141 +93,271 @@ function getUserInfo(url, platform) {
   return null;
 }
 
+// ── Store last detected data ──
+let lastUrl = '';
+let lastPlatform = '';
+let lastDirectVideoUrl = '';
+let lastThumbUrl = '';
+
+function formatDuration(seconds) {
+  if (!seconds || isNaN(seconds)) return '\u2014';
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return m + ':' + (s < 10 ? '0' : '') + s;
+}
+
+function formatFileSize(bytes) {
+  if (!bytes || isNaN(bytes)) return '\u2014';
+  if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(1) + ' GB';
+  if (bytes >= 1048576) return (bytes / 1048576).toFixed(0) + ' MB';
+  if (bytes >= 1024) return (bytes / 1024).toFixed(0) + ' KB';
+  return bytes + ' B';
+}
+
+function formatQuality(w, h) {
+  if (!w || !h) return null;
+  const d = Math.max(w, h);
+  if (d >= 3840) return '4K';
+  if (d >= 1920) return 'Full HD';
+  if (d >= 1280) return 'HD';
+  if (d >= 720) return 'HD';
+  if (d >= 480) return 'SD';
+  return 'SD';
+}
+
+async function fetchYouTubeMeta(videoId) {
+  const instances = [
+    'https://inv.nadeko.net/api/v1/videos/' + videoId,
+    'https://invidious.snopyta.org/api/v1/videos/' + videoId,
+    'https://yewtu.be/api/v1/videos/' + videoId,
+    'https://vid.puffyan.us/api/v1/videos/' + videoId,
+  ];
+  for (const url of instances) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
+      if (!r.ok) continue;
+      return await r.json();
+    } catch(e) { continue; }
+  }
+  return null;
+}
+
+async function fetchPageMeta(url) {
+  const proxies = [
+    'https://api.allorigins.win/raw?url=' + encodeURIComponent(url),
+    'https://corsproxy.io/?' + encodeURIComponent(url),
+  ];
+  for (const proxy of proxies) {
+    try {
+      const r = await fetch(proxy, { signal: AbortSignal.timeout(10000) });
+      if (!r.ok) continue;
+      const html = await r.text();
+      const ogImg = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["'][^>]*>/i)?.[1]
+        || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["'][^>]*>/i)?.[1]
+        || html.match(/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["'][^>]*>/i)?.[1];
+      const ogVideo = html.match(/<meta[^>]+property=["']og:video:url["'][^>]+content=["']([^"']+)["'][^>]*>/i)?.[1]
+        || html.match(/<meta[^>]+property=["']og:video["'][^>]+content=["']([^"']+)["'][^>]*>/i)?.[1];
+      const vidWidth = parseInt(html.match(/<meta[^>]+property=["']og:video:width["'][^>]+content=["'](\d+)["'][^>]*>/i)?.[1]);
+      const vidHeight = parseInt(html.match(/<meta[^>]+property=["']og:video:height["'][^>]+content=["'](\d+)["'][^>]*>/i)?.[1]);
+      const durationSec = parseInt(html.match(/<meta[^>]+property=["']video:duration["'][^>]+content=["'](\d+)["'][^>]*>/i)?.[1]);
+
+      return { image: ogImg || null, video: ogVideo || null, html: html, width: vidWidth, height: vidHeight, duration: durationSec };
+    } catch(e) { continue; }
+  }
+  return { image: null, video: null, html: null, width: null, height: null, duration: null };
+}
+
+function extractTikTokData(html) {
+  if (!html) return null;
+  const videoUrl = html.match(/"video":{"url":"([^"]+)"/) || html.match(/"playAddr":"([^"]+)"/) || html.match(/"downloadAddr":"([^"]+)"/);
+  const duration = html.match(/"duration":(\d+)/)?.[1];
+  const width = html.match(/"width":(\d+)/)?.[1];
+  const height = html.match(/"height":(\d+)/)?.[1];
+  return {
+    video: videoUrl ? videoUrl[1].replace(/\\u002F/g, '/').replace(/\\/g, '') : null,
+    duration: duration ? parseInt(duration) : null,
+    width: width ? parseInt(width) : null,
+    height: height ? parseInt(height) : null,
+  };
+}
+
+function updateMeta(duration, quality, dims) {
+  document.getElementById('resultDuration').textContent = duration || '\u2014';
+  document.getElementById('resultSize').textContent = '\u2022 ' + (quality || '\u2014');
+  document.getElementById('resultRes').textContent = '\u2022 ' + (dims || '\u2014');
+}
+
 function handleDownload() {
   const input = document.getElementById('urlInput');
   const select = document.getElementById('platformSelect');
   const url = input.value.trim();
   if (!url) {
     input.style.borderColor = 'var(--accent)';
-    input.style.transition = 'border-color .3s';
     input.focus();
     setTimeout(() => input.style.borderColor = '', 800);
     return;
   }
 
   const platform = select.value !== 'auto' ? select.value : detectPlatform(url);
-  lastDownloadUrl = url;
+  lastUrl = url;
   lastPlatform = platform;
-  const result = document.getElementById('result');
-  const previewWrap = document.getElementById('resultPreview');
 
   const icons = { tiktok: '\uD83C\uDFB5', instagram: '\uD83D\uDCF8', youtube: '\u25B6\uFE0F', facebook: '\uD83D\uDCD8', twitter: '\uD835\uDD4F', snapchat: '\uD83D\uDC7B', pinterest: '\uD83D\uDCCC', vimeo: '\uD83C\uDFA5', dailymotion: '\uD83D\uDCFA', direct: '\uD83D\uDCF9' };
   const labels = { tiktok: 'TikTok', instagram: 'Instagram', youtube: 'YouTube', facebook: 'Facebook', twitter: 'Twitter / X', snapchat: 'Snapchat', pinterest: 'Pinterest', vimeo: 'Vimeo', dailymotion: 'Dailymotion', direct: 'Direct Video' };
-  const icon = icons[platform] || '\uD83C\uDFAC';
   const label = labels[platform] || 'Video';
-  const shortUrl = url.length > 55 ? url.slice(0, 52) + '...' : url;
   const username = getUserInfo(url, platform);
+  const shortUrl = url.length > 50 ? url.slice(0, 47) + '...' : url;
 
-  let title = label + ' Video';
-  if (username) title += ' \u2014 @' + username;
-  else title += ' \u2014 ' + shortUrl;
+  updateMeta('\u2026', '\u2026', '\u2026');
+  document.getElementById('resultTitle').textContent = label + ' Video' + (username ? ' \u2014 @' + username : ' \u2014 ' + shortUrl);
+  document.getElementById('resultThumb').innerHTML = '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:28px">' + (icons[platform] || '\uD83C\uDFAC') + '</div>';
 
-  document.getElementById('resultTitle').textContent = title;
-  document.getElementById('resultThumb').textContent = icon;
+  const previewWrap = document.getElementById('resultPreview');
+  previewWrap.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;padding:20px"><div style="width:32px;height:32px;border:2px solid var(--accent-dim);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite"></div></div>';
 
-  let previewHtml = '';
-  if (platform === 'youtube') {
-    let vid = null;
-    const m = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
-    if (m) vid = m[1];
-    if (vid) {
-      previewHtml = '<iframe src="https://www.youtube.com/embed/' + vid + '?autoplay=1&mute=1" allow="autoplay; encrypted-media" allowfullscreen style="width:100%;height:100%;border:none;"></iframe>';
+  document.getElementById('result').classList.add('show');
+  lastDirectVideoUrl = '';
+  lastThumbUrl = '';
+
+  async function buildPreview() {
+    let duration = null, width = null, height = null, thumb = null, videoUrl = null;
+
+    if (platform === 'youtube') {
+      const vid = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/)?.[1];
+      if (vid) {
+        thumb = 'https://img.youtube.com/vi/' + vid + '/maxresdefault.jpg';
+        const meta = await fetchYouTubeMeta(vid);
+        if (meta) {
+          duration = meta.lengthSeconds;
+          width = meta.author ? 1920 : null;
+          height = meta.author ? 1080 : null;
+          videoUrl = (meta.adaptiveFormats || [])[0]?.url || (meta.formatStreams || [])[0]?.url || null;
+          if (meta.videoThumbnails && meta.videoThumbnails.length) {
+            thumb = meta.videoThumbnails[meta.videoThumbnails.length - 1].url || thumb;
+          }
+        }
+      }
     } else {
-      previewHtml = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:12px;padding:20px;text-align:center;background:rgba(0,0,0,.3)">' +
-        '<span style="font-size:56px">\u25B6\uFE0F</span>' +
-        '<span style="color:var(--text);font-size:16px;font-weight:600">YouTube Video Detected</span>' +
-        '<span style="color:var(--text-dim);font-size:13px">Ready to download in HD \u2022 4K available</span></div>';
+      const meta = await fetchPageMeta(url);
+      thumb = meta.image || null;
+      if (platform === 'tiktok') {
+        const tt = extractTikTokData(meta.html);
+        if (tt) {
+          videoUrl = tt.video || videoUrl;
+          duration = tt.duration || meta.duration;
+          width = tt.width || meta.width;
+          height = tt.height || meta.height;
+        }
+      }
+      if (!videoUrl) videoUrl = meta.video || null;
+      if (!duration) duration = meta.duration;
+      if (!width) width = meta.width;
+      if (!height) height = meta.height;
     }
-  } else if (platform) {
-    previewHtml = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:16px;padding:24px;text-align:center;background:radial-gradient(ellipse at center, rgba(230,57,70,.05), transparent)">' +
-      '<span style="font-size:64px">' + icon + '</span>' +
-      '<span style="color:var(--text);font-size:18px;font-weight:700">' + label + ' Video Ready</span>' +
-      '<span style="color:var(--text-dim);font-size:13px;max-width:320px">No watermark \u2022 Original quality \u2022 Fast download</span>' +
-      '<div style="display:flex;gap:8px;margin-top:4px">' +
-        '<span style="padding:4px 12px;border-radius:100px;background:var(--accent-dim);color:var(--accent);font-size:11px;font-weight:600">HD</span>' +
-        '<span style="padding:4px 12px;border-radius:100px;background:var(--accent-dim);color:var(--accent);font-size:11px;font-weight:600">Full HD</span>' +
-        '<span style="padding:4px 12px;border-radius:100px;background:var(--accent-dim);color:var(--accent);font-size:11px;font-weight:600">4K</span>' +
-      '</div>' +
-      '<span style="color:var(--text-muted);font-size:10px;word-break:break-all;max-width:100%;margin-top:4px">' + url + '</span></div>';
-  } else {
-    previewHtml = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:12px;padding:20px;text-align:center">' +
-      '<span style="font-size:48px">\uD83D\uDD17</span>' +
-      '<span style="color:var(--text-dim);font-size:14px">URL received \u2014 select platform manually</span>' +
-      '<span style="color:var(--text-muted);font-size:11px">Platform auto-detect failed for this link. Choose from the dropdown.</span>' +
-      '<span style="color:var(--text-muted);font-size:10px;word-break:break-all;max-width:100%">' + url + '</span></div>';
+
+    lastDirectVideoUrl = videoUrl || '';
+    lastThumbUrl = thumb || '';
+
+    const durStr = formatDuration(duration);
+    const qualStr = formatQuality(width, height) || '\u2014';
+    const dimStr = (width && height) ? width + 'x' + height : qualStr;
+    updateMeta(durStr, qualStr, dimStr);
+
+    let previewHtml = '';
+    if (platform === 'youtube') {
+      const vid = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/)?.[1];
+      if (vid) {
+        previewHtml = '<iframe src="https://www.youtube.com/embed/' + vid + '?autoplay=1&mute=1" allow="autoplay; encrypted-media" allowfullscreen style="width:100%;height:100%;border:none;"></iframe>';
+      } else {
+        previewHtml = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:12px;padding:20px;text-align:center;background:rgba(0,0,0,.3)"><span style="font-size:48px">\u25B6\uFE0F</span><span style="color:var(--text);font-size:15px;font-weight:600">YouTube Video</span></div>';
+      }
+    } else if (thumb) {
+      previewHtml = '<div style="position:relative;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden">' +
+        '<div style="position:absolute;inset:0;background-image:url(' + JSON.stringify(thumb) + ');background-size:cover;background-position:center;filter:blur(8px) brightness(.5);transform:scale(1.1)"></div>' +
+        '<img src="' + thumb.replace(/"/g, '&quot;') + '" style="position:relative;max-height:85%;max-width:90%;border-radius:8px;box-shadow:0 4px 30px rgba(0,0,0,.5);z-index:1" alt="" onerror="this.style.display=\'none\'">' +
+        '</div>';
+    } else {
+      previewHtml = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:12px;padding:20px;text-align:center;background:radial-gradient(ellipse at center, rgba(230,57,70,.05), transparent)">' +
+        '<span style="font-size:48px">' + (icons[platform] || '\uD83C\uDFAC') + '</span>' +
+        '<span style="color:var(--text);font-size:15px;font-weight:600">' + label + ' Video</span>' +
+        '<span style="color:var(--text-muted);font-size:10px;word-break:break-all;max-width:100%">' + url + '</span></div>';
+    }
+
+    if (thumb) {
+      document.getElementById('resultThumb').innerHTML = '<img src="' + thumb.replace(/"/g, '&quot;') + '" style="width:100%;height:100%;object-fit:cover" alt="" onerror="this.outerHTML=\'<div style=width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:28px>' + (icons[platform] || '\uD83C\uDFAC') + '</div>\'">';
+    }
+
+    previewWrap.innerHTML = previewHtml;
   }
 
-  previewWrap.innerHTML = previewHtml;
-  result.classList.add('show');
-
-  setTimeout(function() { result.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, 200);
+  buildPreview();
+  setTimeout(function() { document.getElementById('result').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, 300);
 }
 
-// ── Store last detected URL/platform for download ──
-let lastDownloadUrl = '';
-let lastPlatform = '';
-
 function downloadFile() {
-  const url = lastDownloadUrl || document.getElementById('urlInput').value.trim();
+  const url = lastUrl || document.getElementById('urlInput').value.trim();
   if (!url) return;
-
   const btn = document.getElementById('dlBtn');
-  btn.textContent = 'جاري التحميل...';
+  btn.textContent = '\u062C\u0627\u0631\u064A \u0627\u0644\u062A\u062D\u0645\u064A\u0644...';
   btn.disabled = true;
-
   const plat = lastPlatform || detectPlatform(url);
-
   if (plat === 'youtube') {
-    downloadYouTube(url, btn);
+    const vid = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/)?.[1];
+    if (vid) downloadVideoUrl('https://api.vevioz.com/api/button/Youtube/' + vid, btn, 'video.mp4');
+    else { btn.textContent = 'Download HD'; btn.disabled = false; }
+  } else if (lastDirectVideoUrl) {
+    downloadVideoUrl(lastDirectVideoUrl, btn, 'video.mp4');
   } else {
     fetchViaProxy(url, btn);
   }
 }
 
-async function downloadYouTube(url, btn) {
-  const m = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
-  if (!m) { btn.textContent = 'Download HD'; btn.disabled = false; return; }
-  const vid = m[1];
+function installVideo() {
+  const url = lastUrl || document.getElementById('urlInput').value.trim();
+  if (!url) return;
+  const btn = document.getElementById('installBtn');
+  btn.textContent = '\u062C\u0627\u0631\u064A...';
+  btn.disabled = true;
+  const plat = lastPlatform || detectPlatform(url);
+  if (plat === 'youtube') {
+    const vid = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/)?.[1];
+    if (vid) downloadVideoUrl('https://api.vevioz.com/api/button/Youtube/' + vid, btn, 'video.mp4');
+    else { btn.textContent = '\u2B07 Install'; btn.disabled = false; }
+  } else if (lastDirectVideoUrl) {
+    downloadVideoUrl(lastDirectVideoUrl, btn, 'video.mp4');
+  } else {
+    fetchViaProxy(url, btn);
+  }
+}
 
-  const instances = [
-    'https://inv.nadeko.net/api/v1/videos/' + vid,
-    'https://invidious.snopyta.org/api/v1/videos/' + vid,
-    'https://yewtu.be/api/v1/videos/' + vid,
-    'https://vid.puffyan.us/api/v1/videos/' + vid,
+async function downloadVideoUrl(videoUrl, btn, filename) {
+  const proxies = [
+    'https://api.allorigins.win/raw?url=' + encodeURIComponent(videoUrl),
+    'https://corsproxy.io/?' + encodeURIComponent(videoUrl),
+    'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(videoUrl),
+    'https://thingproxy.freeboard.io/fetch/' + encodeURIComponent(videoUrl),
   ];
-
-  for (const apiUrl of instances) {
+  for (const proxy of proxies) {
     try {
-      const resp = await fetch(apiUrl, { signal: AbortSignal.timeout(8000) });
-      if (!resp.ok) continue;
-      const data = await resp.json();
-
-      let videoUrl = null;
-      const allFormats = (data.adaptiveFormats || []).concat(data.formatStreams || []);
-      for (const f of allFormats) {
-        if (f.url && f.type && f.type.startsWith('video/mp4')) {
-          const label = f.qualityLabel || '';
-          if (label.includes('720p') || label.includes('1080p') || label.includes('480p')) {
-            if (!videoUrl) videoUrl = f;
-          }
-          if (!videoUrl) videoUrl = f;
-        }
-      }
-      if (!videoUrl) {
-        for (const f of allFormats) {
-          if (f.url) { videoUrl = f; break; }
-        }
-      }
-      if (videoUrl && videoUrl.url) {
-        await fetchViaProxy(videoUrl.url, btn);
-        return;
-      }
+      const r = await fetch(proxy, { signal: AbortSignal.timeout(20000) });
+      if (!r.ok) continue;
+      const blob = await r.blob();
+      const ext = (blob.type.split('/')[1] || 'mp4').replace('x-', '');
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename || 'video.' + ext;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function() { URL.revokeObjectURL(blobUrl); }, 5000);
+      btn.textContent = btn.id === 'installBtn' ? '\u2B07 Install' : 'Download HD';
+      btn.disabled = false;
+      return;
     } catch(e) { continue; }
   }
-
-  // Fallback: use direct API download endpoint
-  window.open('https://api.vevioz.com/api/button/Youtube/' + vid, '_blank');
-  btn.textContent = 'Download HD';
+  window.open(videoUrl, '_blank');
+  btn.textContent = btn.id === 'installBtn' ? '\u2B07 Install' : 'Download HD';
   btn.disabled = false;
 }
 
@@ -237,11 +367,11 @@ async function fetchViaProxy(url, btn) {
     'https://corsproxy.io/?' + encodeURIComponent(url),
     'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url),
   ];
-  for (const proxyUrl of proxies) {
+  for (const proxy of proxies) {
     try {
-      const resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(15000) });
-      if (!resp.ok) continue;
-      const blob = await resp.blob();
+      const r = await fetch(proxy, { signal: AbortSignal.timeout(15000) });
+      if (!r.ok) continue;
+      const blob = await r.blob();
       const ext = (blob.type.split('/')[1] || 'mp4').replace('x-', '');
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -251,23 +381,14 @@ async function fetchViaProxy(url, btn) {
       a.click();
       document.body.removeChild(a);
       setTimeout(function() { URL.revokeObjectURL(blobUrl); }, 5000);
-      btn.textContent = 'Download HD';
+      btn.textContent = btn.id === 'installBtn' ? '\u2B07 Install' : 'Download HD';
       btn.disabled = false;
       return;
     } catch(e) { continue; }
   }
-
-  // Last resort
   window.open(url, '_blank');
-  btn.textContent = 'Download HD';
+  btn.textContent = btn.id === 'installBtn' ? '\u2B07 Install' : 'Download HD';
   btn.disabled = false;
-}
-
-function clearResult() {
-  document.getElementById('result').classList.remove('show');
-  document.getElementById('resultPreview').innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-dim);font-size:13px">Paste a URL and click Download</div>';
-  document.getElementById('urlInput').value = '';
-  document.getElementById('urlInput').focus();
 }
 
 // ── Enter key ──
