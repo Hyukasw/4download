@@ -1,46 +1,29 @@
 import express from 'express';
-import { Readable } from 'stream';
 import { join } from 'path';
+import { Readable } from 'stream';
 import * as cheerio from 'cheerio';
 
 const app = express();
 app.use(express.json());
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
 
-function pipe(resp, res, name) {
-  const ct = resp.headers.get('content-type') || 'video/mp4';
-  const cl = resp.headers.get('content-length');
-  res.setHeader('Content-Type', ct);
-  res.setHeader('Content-Disposition', 'attachment; filename="' + name + '"');
-  res.setHeader('Cache-Control', 'no-cache');
-  if (cl) res.setHeader('Content-Length', cl);
-  Readable.fromWeb(resp.body).pipe(res);
-}
-
-// ─── YouTube via Invidious ───
-const YT_HOSTS = ['invidious.snopyta.org', 'yewtu.be', 'invidious.private.coffee', 'inv.riverside.rocks'];
+// ─── YouTube via yt-dlp ───
+import { execSync } from 'child_process';
 
 app.get('/api/yt', async (req, res) => {
   const vid = req.query.v;
   if (!vid || !/^[a-zA-Z0-9_-]{11}$/.test(vid)) return res.status(400).json({ error: 'bad id' });
-  for (const host of YT_HOSTS) {
-    try {
-      const r = await fetch('https://' + host + '/api/v1/videos/' + vid, {
-        headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(8000),
-      });
-      if (!r.ok) continue;
-      const data = await r.json();
-      const best = (data.formatStreams || []).sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0];
-      const url = best?.url || data.downloadUrl;
-      if (!url) continue;
-      const s = await fetch(url, {
-        headers: { 'User-Agent': UA, 'Accept': '*/*', 'Referer': 'https://' + host + '/' },
-        signal: AbortSignal.timeout(180000),
-      });
-      if (s.ok) return pipe(s, res, vid + '.mp4');
-    } catch (_) {}
+
+  try {
+    const url = execSync(
+      '"C:\\Users\\User\\AppData\\Local\\Programs\\Python\\Python313\\Scripts\\yt-dlp.exe" -g --format "best[height<=1080][ext=mp4]/best[ext=mp4]" "https://www.youtube.com/watch?v=' + vid + '" 2>NUL',
+      { timeout: 30000, encoding: 'utf8', maxBuffer: 1048576, shell: 'cmd.exe' }
+    ).trim();
+    if (!url) return res.status(502).json({ error: 'no url' });
+    return res.json({ url, host: 'youtube.com' });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
   }
-  res.status(502).json({ error: 'download failed' });
 });
 
 // ─── Generic download ───
@@ -74,7 +57,7 @@ app.get('/api/dl', async (req, res) => {
     });
     if (!r.ok) throw Error('HTTP ' + r.status);
     const ct = (r.headers.get('content-type') || '').toLowerCase();
-    if (ct.startsWith('video/')) return pipe(r, res, 'video.mp4');
+    if (ct.startsWith('video/')) return res.json({ url, found: true });
 
     const html = await r.text();
     const low = url.toLowerCase();
@@ -82,16 +65,30 @@ app.get('/api/dl', async (req, res) => {
     if (low.includes('tiktok')) src = await extractTikTok(html);
     else src = og(html, 'og:video') || og(html, 'og:video:url') || og(html, 'twitter:player:stream');
 
-    if (src) {
-      const v = await fetch(src, {
-        headers: { 'User-Agent': UA, 'Accept': '*/*', 'Referer': url },
-        signal: AbortSignal.timeout(60000),
-      });
-      if (v.ok) return pipe(v, res, 'video.mp4');
-    }
+    if (src) return res.json({ url: src, found: true, referer: url });
     res.status(404).json({ error: 'no video found' });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── Pipe proxy (same-origin download, streaming) ───
+app.get('/api/pipe', async (req, res) => {
+  const url = req.query.url;
+  if (!url) return res.status(400).json({ error: 'missing url' });
+  try {
+    const r = await fetch(url, {
+      headers: { 'User-Agent': UA, 'Accept': '*/*' },
+      signal: AbortSignal.timeout(180000),
+    });
+    if (!r.ok) return res.status(502).json({ error: 'fetch failed ' + r.status });
+    const ct = r.headers.get('content-type') || 'video/mp4';
+    res.setHeader('Content-Type', ct);
+    res.setHeader('Content-Disposition', 'attachment; filename="video.mp4"');
+    res.setHeader('Cache-Control', 'no-cache');
+    Readable.fromWeb(r.body).pipe(res);
+  } catch (e) {
+    if (!res.headersSent) res.status(500).json({ error: e.message });
   }
 });
 
@@ -125,9 +122,9 @@ app.get('/api/embed', (req, res) => {
 
 // ─── Background video proxy ───
 const BG = [
-  'https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_1MB.mp4',
-  'https://www.w3schools.com/html/mov_bbb.mp4',
-  'https://media.w3.org/2010/05/sintel/trailer.mp4',
+  'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
+  'https://videos.pexels.com/video-files/1851190/1851190-sd_640_360_25fps.mp4',
+  'https://videos.pexels.com/video-files/2611250/2611250-sd_640_360_30fps.mp4',
 ];
 
 app.get('/api/bg-video', async (req, res) => {

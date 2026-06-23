@@ -55,15 +55,23 @@ function detectPlatform(url) {
   return null;
 }
 
-// Download via <a> tag (no CORS)
-function apiDL(path) {
-  const a = document.createElement('a');
-  a.href = path;
-  a.download = 'video.mp4';
-  a.style.display = 'none';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+// Download: fetch JSON, extract URL, pipe through server (same-origin -> download works)
+async function apiDL(path) {
+  try {
+    const r = await fetch(path);
+    const data = await r.json();
+    if (!data.url) throw new Error(data.error || 'no url');
+    const a = document.createElement('a');
+    a.href = '/api/pipe?url=' + encodeURIComponent(data.url);
+    a.download = 'video.mp4';
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  } catch (e) {
+    console.error('Download failed', e);
+    document.getElementById('resultTitle').textContent = '\u274C Download failed: ' + (e.message || 'unknown error');
+  }
 }
 
 // Handle paste / download
@@ -109,11 +117,11 @@ async function doDownload(btn, text) {
   const plat = lastPlatform || detectPlatform(url);
   if (plat === 'youtube') {
     const vid = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/)?.[1];
-    if (vid) apiDL('/api/yt?v=' + vid);
+    if (vid) await apiDL('/api/yt?v=' + vid);
   } else {
-    apiDL('/api/dl?url=' + encodeURIComponent(url));
+    await apiDL('/api/dl?url=' + encodeURIComponent(url));
   }
-  setTimeout(() => { btn.textContent = text; btn.disabled = false; }, 2000);
+  setTimeout(() => { btn.textContent = text; btn.disabled = false; }, 3000);
 }
 
 function downloadFile() { doDownload(document.getElementById('dlBtn'), 'Download HD'); }

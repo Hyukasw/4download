@@ -1,7 +1,7 @@
 const BG = [
-  'https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_1MB.mp4',
-  'https://www.w3schools.com/html/mov_bbb.mp4',
-  'https://media.w3.org/2010/05/sintel/trailer.mp4',
+  'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
+  'https://videos.pexels.com/video-files/1851190/1851190-sd_640_360_25fps.mp4',
+  'https://videos.pexels.com/video-files/2611250/2611250-sd_640_360_30fps.mp4',
 ];
 
 export default async function handler(req, res) {

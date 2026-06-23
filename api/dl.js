@@ -11,7 +11,7 @@ export default async function handler(req, res) {
     });
     if (!r.ok) throw Error('HTTP ' + r.status);
     const ct = (r.headers.get('content-type') || '').toLowerCase();
-    if (ct.startsWith('video/')) return pipe(r, res, 'video.mp4');
+    if (ct.startsWith('video/')) return res.json({ url: url, found: true });
 
     const html = await r.text();
     const low = url.toLowerCase();
@@ -24,13 +24,7 @@ export default async function handler(req, res) {
       src = og(html, 'og:video') || og(html, 'og:video:url') || og(html, 'twitter:player:stream');
     }
 
-    if (src) {
-      const v = await fetch(src, {
-        headers: { 'User-Agent': UA, 'Accept': '*/*', 'Referer': url },
-        signal: AbortSignal.timeout(60000),
-      });
-      if (v.ok) return pipe(v, res, 'video.mp4');
-    }
+    if (src) return res.json({ url: src, found: true, referer: url });
     res.status(404).json({ error: 'no video found' });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -42,16 +36,4 @@ function og(html, prop) {
   const m = html.match(new RegExp('<meta[^>]+(?:property|name)=["\']' + p + '["\'][^>]+content=["\']([^"\']+)["\']', 'i'))
     || html.match(new RegExp('<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:property|name)=["\']' + p + '["\']', 'i'));
   return m?.[1] || null;
-}
-
-async function pipe(resp, res, name) {
-  const ct = resp.headers.get('content-type') || 'video/mp4';
-  const cl = resp.headers.get('content-length');
-  res.setHeader('Content-Type', ct);
-  res.setHeader('Content-Disposition', 'attachment; filename="' + name + '"');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  if (cl) res.setHeader('Content-Length', cl);
-  const buf = Buffer.from(await resp.arrayBuffer());
-  res.end(buf);
 }
