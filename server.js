@@ -8,7 +8,7 @@ app.use(express.json());
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
 
 // ─── YouTube via yt-dlp ───
-import { execSync } from 'child_process';
+import { execSync, spawn } from 'child_process';
 
 app.get('/api/yt', async (req, res) => {
   const vid = req.query.v;
@@ -20,7 +20,16 @@ app.get('/api/yt', async (req, res) => {
       { timeout: 30000, encoding: 'utf8', maxBuffer: 1048576, shell: 'cmd.exe' }
     ).trim();
     if (!url) return res.status(502).json({ error: 'no url' });
-    return res.json({ url, host: 'youtube.com' });
+
+    const r = await fetch(url, {
+      headers: { 'User-Agent': UA, 'Accept': '*/*' },
+      signal: AbortSignal.timeout(180000),
+    });
+    if (!r.ok) return res.status(502).json({ error: 'fetch failed' });
+    res.setHeader('Content-Type', r.headers.get('content-type') || 'video/mp4');
+    res.setHeader('Content-Disposition', 'attachment; filename="' + vid + '.mp4"');
+    res.setHeader('Cache-Control', 'no-cache');
+    Readable.fromWeb(r.body).pipe(res);
   } catch (e) {
     res.status(502).json({ error: e.message });
   }

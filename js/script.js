@@ -74,6 +74,16 @@ async function apiDL(path) {
   }
 }
 
+function triggerDownload(path) {
+  const a = document.createElement('a');
+  a.href = path;
+  a.download = 'video.mp4';
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
 // Handle paste / download
 function handleDownload() {
   const input = document.getElementById('urlInput');
@@ -117,7 +127,7 @@ async function doDownload(btn, text) {
   const plat = lastPlatform || detectPlatform(url);
   if (plat === 'youtube') {
     const vid = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/)?.[1];
-    if (vid) await apiDL('/api/yt?v=' + vid);
+    if (vid) triggerDownload('/api/yt?v=' + vid);
   } else {
     await apiDL('/api/dl?url=' + encodeURIComponent(url));
   }

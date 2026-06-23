@@ -1,17 +1,30 @@
-import { execSync } from 'child_process';
+import { spawn } from 'child_process';
 
 export default async function handler(req, res) {
   const vid = req.query.v;
   if (!vid || !/^[a-zA-Z0-9_-]{11}$/.test(vid)) return res.status(400).json({ error: 'bad id' });
 
-  try {
-    const url = execSync(
-      '"C:\\Users\\User\\AppData\\Local\\Programs\\Python\\Python313\\Scripts\\yt-dlp.exe" -g --format "best[height<=1080][ext=mp4]/best[ext=mp4]" "https://www.youtube.com/watch?v=' + vid + '" 2>NUL',
-      { timeout: 30000, encoding: 'utf8', maxBuffer: 1048576, shell: 'cmd.exe' }
-    ).trim();
-    if (!url) return res.status(502).json({ error: 'no url' });
-    return res.json({ url, host: 'youtube.com' });
-  } catch (e) {
-    res.status(502).json({ error: e.message });
-  }
+  res.setHeader('Content-Type', 'video/mp4');
+  res.setHeader('Content-Disposition', 'attachment; filename="' + vid + '.mp4"');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+
+  const proc = spawn('yt-dlp', [
+    '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+    '-o', '-',
+    'https://www.youtube.com/watch?v=' + vid,
+  ], { stdio: ['ignore', 'pipe', 'pipe'], timeout: 180000 });
+
+  let started = false;
+  proc.stdout.on('data', () => { if (!started) started = true; });
+  proc.stdout.pipe(res);
+
+  proc.on('error', () => { if (!res.headersSent) res.status(502).json({ error: 'process error' }); });
+  proc.on('close', code => {
+    if (code !== 0 && !started && !res.headersSent) {
+      res.status(502).json({ error: 'yt-dlp failed with code ' + code });
+    }
+  });
+
+  req.on('close', () => { proc.kill(); });
 }
