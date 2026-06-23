@@ -294,43 +294,37 @@ function handleDownload() {
   setTimeout(function() { document.getElementById('result').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, 300);
 }
 
-function downloadFile() {
-  const url = lastUrl || document.getElementById('urlInput').value.trim();
-  if (!url) return;
-  const btn = document.getElementById('dlBtn');
-  btn.textContent = '\u062C\u0627\u0631\u064A \u0627\u0644\u062A\u062D\u0645\u064A\u0644...';
-  btn.disabled = true;
-  const plat = lastPlatform || detectPlatform(url);
-  if (plat === 'youtube') {
-    const vid = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/)?.[1];
-    if (vid) downloadVideoUrl('https://api.vevioz.com/api/button/Youtube/' + vid, btn, 'video.mp4');
-    else { btn.textContent = 'Download HD'; btn.disabled = false; }
-  } else if (lastDirectVideoUrl) {
-    downloadVideoUrl(lastDirectVideoUrl, btn, 'video.mp4');
-  } else {
-    fetchViaProxy(url, btn);
+async function getYouTubeStreamUrl(videoId) {
+  const instances = [
+    'https://inv.nadeko.net/api/v1/videos/' + videoId,
+    'https://invidious.snopyta.org/api/v1/videos/' + videoId,
+    'https://yewtu.be/api/v1/videos/' + videoId,
+    'https://vid.puffyan.us/api/v1/videos/' + videoId,
+  ];
+  for (const url of instances) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (!r.ok) continue;
+      const data = await r.json();
+      const all = (data.adaptiveFormats || []).concat(data.formatStreams || []);
+      let best = null;
+      for (const f of all) {
+        if (f.url && f.type && f.type.startsWith('video/mp4')) {
+          const label = f.qualityLabel || '';
+          if (label.includes('1080p') || label.includes('720p') || label.includes('480p')) {
+            if (!best) best = f;
+          }
+          if (!best) best = f;
+        }
+      }
+      if (!best) { for (const f of all) { if (f.url) { best = f; break; } } }
+      if (best && best.url) return best.url;
+    } catch(e) { continue; }
   }
+  return null;
 }
 
-function installVideo() {
-  const url = lastUrl || document.getElementById('urlInput').value.trim();
-  if (!url) return;
-  const btn = document.getElementById('installBtn');
-  btn.textContent = '\u062C\u0627\u0631\u064A...';
-  btn.disabled = true;
-  const plat = lastPlatform || detectPlatform(url);
-  if (plat === 'youtube') {
-    const vid = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/)?.[1];
-    if (vid) downloadVideoUrl('https://api.vevioz.com/api/button/Youtube/' + vid, btn, 'video.mp4');
-    else { btn.textContent = '\u2B07 Install'; btn.disabled = false; }
-  } else if (lastDirectVideoUrl) {
-    downloadVideoUrl(lastDirectVideoUrl, btn, 'video.mp4');
-  } else {
-    fetchViaProxy(url, btn);
-  }
-}
-
-async function downloadVideoUrl(videoUrl, btn, filename) {
+async function downloadVideoToDevice(videoUrl, btn, filename) {
   const proxies = [
     'https://api.allorigins.win/raw?url=' + encodeURIComponent(videoUrl),
     'https://corsproxy.io/?' + encodeURIComponent(videoUrl),
@@ -339,56 +333,109 @@ async function downloadVideoUrl(videoUrl, btn, filename) {
   ];
   for (const proxy of proxies) {
     try {
-      const r = await fetch(proxy, { signal: AbortSignal.timeout(20000) });
+      const r = await fetch(proxy, { signal: AbortSignal.timeout(30000) });
       if (!r.ok) continue;
       const blob = await r.blob();
-      const ext = (blob.type.split('/')[1] || 'mp4').replace('x-', '');
+      if (blob.size < 100) continue;
+      const ext = (blob.type.split('/')[1] || 'mp4').replace('x-', '').replace(/[^a-zA-Z0-9]/g, '');
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = blobUrl;
-      a.download = filename || 'video.' + ext;
+      a.download = filename || 'video.' + (ext || 'mp4');
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       setTimeout(function() { URL.revokeObjectURL(blobUrl); }, 5000);
       btn.textContent = btn.id === 'installBtn' ? '\u2B07 Install' : 'Download HD';
       btn.disabled = false;
-      return;
+      return true;
     } catch(e) { continue; }
   }
-  window.open(videoUrl, '_blank');
-  btn.textContent = btn.id === 'installBtn' ? '\u2B07 Install' : 'Download HD';
-  btn.disabled = false;
+  return false;
 }
 
-async function fetchViaProxy(url, btn) {
-  const proxies = [
-    'https://api.allorigins.win/raw?url=' + encodeURIComponent(url),
-    'https://corsproxy.io/?' + encodeURIComponent(url),
-    'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url),
-  ];
-  for (const proxy of proxies) {
-    try {
-      const r = await fetch(proxy, { signal: AbortSignal.timeout(15000) });
-      if (!r.ok) continue;
-      const blob = await r.blob();
-      const ext = (blob.type.split('/')[1] || 'mp4').replace('x-', '');
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = 'video.' + ext;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(function() { URL.revokeObjectURL(blobUrl); }, 5000);
-      btn.textContent = btn.id === 'installBtn' ? '\u2B07 Install' : 'Download HD';
-      btn.disabled = false;
-      return;
-    } catch(e) { continue; }
+async function downloadFile() {
+  const url = lastUrl || document.getElementById('urlInput').value.trim();
+  if (!url) return;
+  const btn = document.getElementById('dlBtn');
+  btn.textContent = '\u062C\u0627\u0631\u064A \u0627\u0644\u062A\u062D\u0645\u064A\u0644...';
+  btn.disabled = true;
+  const plat = lastPlatform || detectPlatform(url);
+  let success = false;
+
+  if (plat === 'youtube') {
+    const vid = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/)?.[1];
+    if (vid) {
+      let streamUrl = null;
+      if (lastDirectVideoUrl && lastDirectVideoUrl.includes('googlevideo.com')) streamUrl = lastDirectVideoUrl;
+      if (!streamUrl) streamUrl = await getYouTubeStreamUrl(vid);
+      if (streamUrl) success = await downloadVideoToDevice(streamUrl, btn, 'video.mp4');
+      if (!success) {
+        const htmlMeta = await fetchPageMeta(url);
+        if (htmlMeta.video) success = await downloadVideoToDevice(htmlMeta.video, btn, 'video.mp4');
+      }
+    }
+  } else if (lastDirectVideoUrl) {
+    success = await downloadVideoToDevice(lastDirectVideoUrl, btn, 'video.mp4');
   }
-  window.open(url, '_blank');
-  btn.textContent = btn.id === 'installBtn' ? '\u2B07 Install' : 'Download HD';
-  btn.disabled = false;
+
+  if (!success) {
+    const directCheck = url.match(/\.(mp4|webm|mov)(\?|#|$)/i);
+    if (directCheck) success = await downloadVideoToDevice(url, btn, 'video.mp4');
+  }
+
+  if (!success && !plat) {
+    const htmlMeta = await fetchPageMeta(url);
+    if (htmlMeta.video) success = await downloadVideoToDevice(htmlMeta.video, btn, 'video.mp4');
+  }
+
+  if (!success) {
+    btn.textContent = 'Failed - Try Again';
+    btn.disabled = false;
+    setTimeout(function() { btn.textContent = 'Download HD'; }, 3000);
+  }
+}
+
+async function installVideo() {
+  const url = lastUrl || document.getElementById('urlInput').value.trim();
+  if (!url) return;
+  const btn = document.getElementById('installBtn');
+  btn.textContent = '\u062C\u0627\u0631\u064A...';
+  btn.disabled = true;
+  const plat = lastPlatform || detectPlatform(url);
+  let success = false;
+
+  if (plat === 'youtube') {
+    const vid = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/)?.[1];
+    if (vid) {
+      let streamUrl = null;
+      if (lastDirectVideoUrl && lastDirectVideoUrl.includes('googlevideo.com')) streamUrl = lastDirectVideoUrl;
+      if (!streamUrl) streamUrl = await getYouTubeStreamUrl(vid);
+      if (streamUrl) success = await downloadVideoToDevice(streamUrl, btn, 'video.mp4');
+      if (!success) {
+        const htmlMeta = await fetchPageMeta(url);
+        if (htmlMeta.video) success = await downloadVideoToDevice(htmlMeta.video, btn, 'video.mp4');
+      }
+    }
+  } else if (lastDirectVideoUrl) {
+    success = await downloadVideoToDevice(lastDirectVideoUrl, btn, 'video.mp4');
+  }
+
+  if (!success) {
+    const directCheck = url.match(/\.(mp4|webm|mov)(\?|#|$)/i);
+    if (directCheck) success = await downloadVideoToDevice(url, btn, 'video.mp4');
+  }
+
+  if (!success && !plat) {
+    const htmlMeta = await fetchPageMeta(url);
+    if (htmlMeta.video) success = await downloadVideoToDevice(htmlMeta.video, btn, 'video.mp4');
+  }
+
+  if (!success) {
+    btn.textContent = 'Failed';
+    btn.disabled = false;
+    setTimeout(function() { btn.textContent = '\u2B07 Install'; }, 3000);
+  }
 }
 
 // ── Enter key ──
