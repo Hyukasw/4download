@@ -165,21 +165,37 @@ async function doDownload() {
 
   const plat = lastPlatform || detectPlatform(url);
 
-  if (plat === 'youtube' && lastVid) {
-    // Navigate directly to /api/yt — server handles merge/single fallback
-    window.location.href = '/api/yt?v=' + lastVid;
-    // Reset after timeout in case navigation doesn't happen
-    setTimeout(() => { btn.disabled = false; label.textContent = 'Try Again'; }, 10000);
-    return;
-  }
-
   if (plat === 'youtube') {
-    lastVid = getYouTubeId(url);
-    if (lastVid) {
-      window.location.href = '/api/yt?v=' + lastVid;
-      setTimeout(() => { btn.disabled = false; label.textContent = 'Try Again'; }, 10000);
-      return;
+    if (!lastVid) lastVid = getYouTubeId(url);
+    if (!lastVid) return;
+    // Fetch /api/yt and check if result is video or error JSON
+    try {
+      const r = await fetch('/api/yt?v=' + lastVid);
+      const ct = r.headers.get('content-type') || '';
+      if (ct.startsWith('video/')) {
+        // Got a video stream — download via blob
+        label.textContent = '\u23F3 Downloading...';
+        const blob = await r.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = lastVid + '.mp4';
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
+        label.textContent = 'Download started';
+      } else {
+        // Got an error (JSON)
+        const data = await r.json();
+        throw new Error(data.error || 'Download failed (502)');
+      }
+    } catch (e) {
+      label.textContent = '\u274C ' + (e.message || 'Error');
+      document.getElementById('resultTitle').textContent = '\u274C ' + (e.message || 'Download failed');
     }
+    btn.disabled = false;
+    return;
   }
 
   // Non-YouTube: fetch + pipe

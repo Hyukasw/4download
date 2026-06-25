@@ -25,7 +25,8 @@ function fmtDuration(sec) {
 async function ytInfo(vid) {
   try {
     const info = await ytdl.getInfo('https://www.youtube.com/watch?v=' + vid, {
-      requestOptions: { headers: { 'User-Agent': UA }, timeout: 15000 },
+      requestOptions: { headers: { 'User-Agent': UA }, timeout: 20000 },
+      clients: ['ANDROID_VR', 'WEB', 'ANDROID', 'TV', 'TV_EMBED'],
     });
     const vd = info.videoDetails;
     const formats = info.formats
@@ -60,15 +61,15 @@ async function ytInfo(vid) {
       bestSingle: bestSingle ? { quality: bestSingle.label, size: bestSingle.size, sizeFormatted: fmtSize(bestSingle.size), format: bestSingle.format } : null,
       hasFfmpeg: false,
     };
-  } catch (_) {
-    const r = await fetch('https://www.youtube.com/watch?v=' + vid, {
-      headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(10000),
-    });
-    const html = await r.text();
+  } catch (e) {
+    const msg = e.message || '';
     return {
-      title: og(html, 'og:title') || og(html, 'twitter:title') || 'YouTube Video',
+      title: 'YouTube Video',
+      error: msg.includes('Status code: 429') || msg.includes('too many requests') || msg.includes('captcha') || msg.includes('Sign in')
+        ? 'YouTube blocked this request (rate limit / captcha). Try the local tunnel version.'
+        : msg,
       duration: null, durationFormatted: null,
-      thumbnail: og(html, 'og:image'),
+      thumbnail: null,
       platform: 'youtube', qualities: [], maxQuality: null,
       best: null, bestSingle: null, hasFfmpeg: false,
     };
