@@ -1,0 +1,2 @@
+LT_URL=https://crazy-pugs-pick.loca.lt
+PID=8456

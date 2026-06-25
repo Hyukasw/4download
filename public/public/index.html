@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="google-adsense-account" content="ca-pub-1820493526414742">
+<title>4DownVid — Download Videos Without Watermark</title>
+<link rel="icon" href="favicon.ico" />
+<link rel="icon" type="image/svg+xml" href="favicon.svg" />
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="preloader" id="preloader">
+  <div class="preload-inner">
+    <div class="preload-logo"><span>4</span>DownVid</div>
+    <div class="preload-bar"><span></span></div>
+  </div>
+</div>
+
+<nav>
+  <a href="#" class="logo">
+    <span class="logo-icon">DV</span>
+    <span class="logo-text"><span>4</span>DownVid</span>
+  </a>
+  <div class="nav-right">
+    <div class="lang-wrap">
+      <button class="nav-btn" onclick="toggleLang()" id="langBtn">&#127758;<span id="langLabel">EN</span></button>
+      <div class="lang-drop" id="langDropdown">
+        <button onclick="setLang('en')"><span>&#127468;&#127463;</span> English</button>
+        <button onclick="setLang('ar')"><span>&#127480;&#127462;</span> العربية</button>
+        <button onclick="setLang('fr')"><span>&#127467;&#127479;</span> Français</button>
+        <button onclick="setLang('es')"><span>&#127466;&#127480;</span> Español</button>
+        <button onclick="setLang('de')"><span>&#127465;&#127466;</span> Deutsch</button>
+        <button onclick="setLang('tr')"><span>&#127481;&#127479;</span> Türkçe</button>
+      </div>
+    </div>
+    <button class="nav-btn theme-btn" onclick="toggleTheme()">
+      <svg class="moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      <svg class="sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+    </button>
+  </div>
+</nav>
+
+<section class="hero">
+  <div class="bg">
+    <video id="bgVideo" autoplay muted loop playsinline></video>
+    <div class="bg-overlay"></div>
+    <div class="bg-grid"></div>
+  </div>
+
+  <div class="content">
+    <div class="badge fade-up"><span class="dot"></span><span id="badgeText">No watermark &bull; 4K &bull; Free</span></div>
+    <h1 class="fade-up" style="transition-delay:.08s">
+      <span id="h1a">Download Any</span><br>
+      <span class="grad" id="h1b">Video Without Watermark</span>
+    </h1>
+    <p class="fade-up" style="transition-delay:.16s" id="h1p">Paste the link from TikTok, Instagram, or YouTube and download in original quality — completely free, no sign-up required.</p>
+
+    <div class="input-wrap fade-up" style="transition-delay:.24s">
+      <div class="input-box">
+        <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        <input type="url" id="urlInput" placeholder="Paste video URL here..." autofocus>
+        <select id="platformSelect">
+          <option value="auto">Auto</option>
+          <option value="tiktok">TikTok</option>
+          <option value="instagram">Instagram</option>
+          <option value="youtube">YouTube</option>
+          <option value="facebook">Facebook</option>
+          <option value="twitter">Twitter / X</option>
+        </select>
+        <button class="go-btn" onclick="handleDownload()" id="dlBtnText">Download</button>
+      </div>
+    </div>
+
+    <div class="chips fade-up" style="transition-delay:.28s">
+      <span class="chip">TikTok</span>
+      <span class="chip">Instagram</span>
+      <span class="chip">YouTube</span>
+    </div>
+
+    <div class="result" id="result">
+      <div class="result-inner">
+        <div class="result-top">
+          <div class="result-thumb" id="resultThumb">&#127916;</div>
+          <div class="result-meta">
+            <h3 id="resultTitle">Paste a URL to start</h3>
+            <div class="result-badges" id="resultMeta">
+              <span id="resultDuration">—</span>
+              <span id="resultSize">—</span>
+              <span id="resultQuality"></span>
+            </div>
+          </div>
+        </div>
+        <div class="result-preview" id="resultPreview">
+          <span class="result-placeholder">Paste a URL and click Download</span>
+        </div>
+        <div class="result-actions">
+          <button class="dl-btn primary" id="dlBtn" onclick="doDownload()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <span id="dlBtnLabel">Download</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer fade-up" style="transition-delay:.36s">
+      <h4 id="descTitle">4DownVid</h4>
+      <p id="descText">The fastest way to download videos from TikTok, Instagram, and YouTube without watermarks. Paste any link and save in seconds. No registration. No limits.</p>
+    </div>
+
+    <div class="stats fade-up" style="transition-delay:.4s">
+      <div class="stat"><div class="stat-num">&infin;</div><div class="stat-lbl" id="f1">No Limits</div></div>
+      <div class="stat"><div class="stat-num">4K</div><div class="stat-lbl" id="f2">Ultra HD</div></div>
+      <div class="stat"><div class="stat-num">0$</div><div class="stat-lbl" id="f3">100% Free</div></div>
+    </div>
+  </div>
+</section>
+
+<script src="js/script.js?v=3"></script>
+</body>
+</html>
